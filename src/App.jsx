@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, Suspense, lazy } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import TrackingInput from './components/TrackingInput';
 import ProbabilityDashboard from './components/ProbabilityDashboard';
 import StatusTimeline from './components/StatusTimeline';
@@ -7,8 +7,6 @@ import PackageInfo from './components/PackageInfo';
 import { getStats, computeArrivalDates } from './data/shippingStats';
 import { isInternational } from './utils/carrierDetector';
 
-// Lazy-load the map (leaflet is heavy)
-const ShippingMap = lazy(() => import('./components/ShippingMap'));
 
 // ---------------------------------------------------------------------------
 // Logo / Header
@@ -73,65 +71,162 @@ function Section({ children, delay = 0 }) {
 // ---------------------------------------------------------------------------
 // 17Track Embed Widget — direct iframe embed (no YQV5 script dependency)
 // ---------------------------------------------------------------------------
-function TrackingWidget({ trackingNumber, isVisible }) {
+// Carrier embed configs — which carriers allow iframe embedding
+// USPS tools.usps.com does NOT set X-Frame-Options, others do.
+// ---------------------------------------------------------------------------
+const CARRIER_EMBEDS = {
+  USPS: {
+    // USPS Tracking iframe — real scan data, no API key needed
+    getUrl: (n) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${n}`,
+    label: 'USPS Official Tracker',
+    allowsEmbed: true,
+  },
+};
+
+// Universal fallback: 17Track aggregator
+const get17TrackUrl = (n) => `https://t.17track.net/en#nums=${encodeURIComponent(n)}`;
+
+// Official carrier tracking page URLs (opens in new tab when embed blocked)
+const CARRIER_OFFICIAL_URLS = {
+  UPS:      (n) => `https://www.ups.com/track?tracknum=${n}`,
+  FedEx:    (n) => `https://www.fedex.com/fedextrack/?trknbr=${n}`,
+  USPS:     (n) => `https://tools.usps.com/go/TrackConfirmAction?tLabels=${n}`,
+  DHL:      (n) => `https://www.dhl.com/en/express/tracking.html?AWB=${n}`,
+  Amazon:   (n) => `https://track.amazon.com/tracking/${n}`,
+  ChinaPost:(n) => `https://t.17track.net/en#nums=${n}`,
+};
+
+function TrackingWidget({ trackingNumber, carrier, carrierMeta, isVisible }) {
   const [iframeKey, setIframeKey] = useState(0);
   const [loaded, setLoaded] = useState(false);
+  const [embedBlocked, setEmbedBlocked] = useState(false);
 
   useEffect(() => {
     setLoaded(false);
+    setEmbedBlocked(false);
     setIframeKey(k => k + 1);
   }, [trackingNumber]);
 
   if (!isVisible) return null;
 
-  const embedUrl = `https://t.17track.net/en#nums=${encodeURIComponent(trackingNumber)}`;
+  const carrierEmbed = CARRIER_EMBEDS[carrier];
+  const officialUrl  = CARRIER_OFFICIAL_URLS[carrier]?.(trackingNumber);
+  const url17        = get17TrackUrl(trackingNumber);
+
+  // Use the carrier's own embed if it supports it, else 17Track
+  const embedUrl  = (carrierEmbed?.allowsEmbed && !embedBlocked)
+    ? carrierEmbed.getUrl(trackingNumber)
+    : url17;
+  const embedLabel = (carrierEmbed?.allowsEmbed && !embedBlocked)
+    ? carrierEmbed.label
+    : '17Track Universal Tracker';
+
+  const accentColor = carrierMeta?.color || '#3b82f6';
 
   return (
     <div className="glass-card overflow-hidden">
-      <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+      {/* Header */}
+      <div className="px-6 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="section-label mb-1">Live Tracking</p>
+          <p className="section-label mb-1">Live Tracking Data</p>
           <h3 className="text-lg font-bold text-white">
             Real-Time Status
             <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400 font-mono align-middle">
-              via 17Track
+              {embedLabel}
             </span>
           </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Real scan events from carrier systems — not estimated data
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          {loaded && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
-          <span className="text-xs text-slate-500 font-mono">{loaded ? 'Live feed' : 'Loading…'}</span>
+
+        {/* Quick-open buttons for official sites */}
+        <div className="flex flex-wrap gap-2">
+          {officialUrl && (
+            <a
+              href={officialUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white
+                         transition-all duration-200 hover:opacity-90 active:scale-95"
+              style={{ backgroundColor: accentColor }}
+            >
+              {carrierMeta?.icon} Open on {carrier} ↗
+            </a>
+          )}
           <a
-            href={embedUrl}
+            href={url17}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-blue-400 hover:text-blue-300 font-mono underline underline-offset-2"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold
+                       border border-slate-700 text-slate-300 hover:border-slate-500 hover:text-white
+                       transition-all duration-200"
           >
-            Open full ↗
+            Open 17Track ↗
           </a>
         </div>
       </div>
 
-      <div className="relative" style={{ height: 560 }}>
-        {!loaded && (
+      {/* Embed iframe */}
+      <div className="relative" style={{ height: 620 }}>
+        {!loaded && !embedBlocked && (
           <div className="absolute inset-0 flex items-center justify-center bg-navy-900/80 z-10">
             <div className="text-center text-slate-600 font-mono text-sm">
               <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-3" />
-              Loading tracking data…
+              Loading live tracking data…
             </div>
           </div>
         )}
-        <iframe
-          key={iframeKey}
-          src={embedUrl}
-          width="100%"
-          height="560"
-          frameBorder="0"
-          title="17Track live tracking"
-          onLoad={() => setLoaded(true)}
-          style={{ display: 'block', border: 'none', background: '#0a0e1a' }}
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-        />
+
+        {embedBlocked ? (
+          /* Carrier blocked the iframe — show open-in-new-tab fallback */
+          <div className="flex flex-col items-center justify-center h-full gap-4 p-8 text-center">
+            <div className="text-4xl">{carrierMeta?.icon || '📦'}</div>
+            <p className="text-white font-semibold">
+              {carrier} blocks embedded tracking pages
+            </p>
+            <p className="text-slate-500 text-sm max-w-md">
+              Open their official tracking page directly for the full map and scan history.
+            </p>
+            {officialUrl && (
+              <a
+                href={officialUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-6 py-3 rounded-xl font-semibold text-white text-sm
+                           transition-all active:scale-95"
+                style={{ backgroundColor: accentColor }}
+              >
+                Track {trackingNumber} on {carrier} ↗
+              </a>
+            )}
+          </div>
+        ) : (
+          <iframe
+            key={iframeKey}
+            src={embedUrl}
+            width="100%"
+            height="620"
+            frameBorder="0"
+            title={`${carrier || 'Package'} live tracking`}
+            onLoad={() => setLoaded(true)}
+            onError={() => setEmbedBlocked(true)}
+            style={{ display: 'block', border: 'none', background: '#fff' }}
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
+          />
+        )}
+      </div>
+
+      {/* Footer note */}
+      <div className="px-6 py-3 border-t border-slate-800 flex items-center gap-2">
+        <svg className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p className="text-xs text-slate-600">
+          Tracking data is pulled directly from carrier systems via {embedLabel}.
+          {carrier === 'USPS' ? ' USPS provides full map + scan history in their embed.' : ' Use the "Open on carrier" button for the full interactive map.'}
+        </p>
       </div>
     </div>
   );
@@ -334,29 +429,13 @@ export default function App() {
             />
           </Section>
 
-          {/* Interactive Map */}
-          {carrier && (
-            <Section delay={200}>
-              <Suspense
-                fallback={
-                  <div className="glass-card h-[480px] flex items-center justify-center">
-                    <div className="text-center text-slate-600">
-                      <div className="w-10 h-10 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-3" />
-                      <p className="font-mono text-sm">Loading map…</p>
-                    </div>
-                  </div>
-                }
-              >
-                <ShippingMap carrier={carrier} carrierMeta={meta} />
-              </Suspense>
-            </Section>
-          )}
-
-          {/* 17Track Live Widget */}
-          <Section delay={250}>
+          {/* Live Tracking Widget — real data from 17Track + carrier embeds */}
+          <Section delay={200}>
             <TrackingWidget
               key={widgetKey}
+              carrier={carrier}
               trackingNumber={activeTracking.number}
+              carrierMeta={meta}
               isVisible
             />
           </Section>
