@@ -22,16 +22,10 @@ function InfoRow({ label, value, mono = false, accent }) {
   );
 }
 
-export default function PackageInfo({ carrier, service, trackingNumber, carrierMeta, arrival }) {
+export default function PackageInfo({ carrier, service, trackingNumber, carrierMeta }) {
   const today = new Date();
   const intl  = isInternational(carrier, service);
   const schedule = CARRIER_SCHEDULE[carrier];
-
-  const confidenceColor = {
-    high:   '#10b981',
-    medium: '#f59e0b',
-    none:   '#64748b',
-  };
 
   // Human-readable detection explanation
   const detectionNote = carrier
@@ -84,19 +78,6 @@ export default function PackageInfo({ carrier, service, trackingNumber, carrierM
           <InfoRow label="" value={<span className="text-slate-500 text-xs">{schedule.note}</span>} />
         )}
         <InfoRow label="Tracked Since" value={fmt(today)} />
-        {arrival && (
-          <InfoRow
-            label="Est. Arrival (50%)"
-            value={fmt(arrival.avg)}
-            accent={carrierMeta?.color}
-          />
-        )}
-        {arrival && (
-          <InfoRow
-            label="Est. Arrival (90%)"
-            value={fmt(arrival.p90)}
-          />
-        )}
       </div>
 
       {/* Detection note */}

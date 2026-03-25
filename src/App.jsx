@@ -1,11 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import TrackingInput from './components/TrackingInput';
-import ProbabilityDashboard from './components/ProbabilityDashboard';
 import StatusTimeline from './components/StatusTimeline';
 import DirectLinks from './components/DirectLinks';
 import PackageInfo from './components/PackageInfo';
-import { getStats, computeArrivalDates } from './data/shippingStats';
-import { isInternational } from './utils/carrierDetector';
+import { getStats } from './data/shippingStats';
 
 
 // ---------------------------------------------------------------------------
@@ -302,8 +300,6 @@ export default function App() {
   const meta       = activeTracking?.detection?.meta    || detection?.meta;
   const stats      = getStats(carrier, service);
   const hasResults = !!activeTracking;
-  const intl       = isInternational(carrier, service);
-  const arrival    = stats ? computeArrivalDates(stats, intl, carrier) : null;
 
   return (
     <div className="min-h-screen bg-navy-900 bg-grid-pattern">
@@ -393,32 +389,15 @@ export default function App() {
             <CarrierBanner detection={activeTracking.detection} />
           </Section>
 
-          {/* Three-column top row: PackageInfo + Probability + Timeline */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Package Info — leftmost narrow column */}
-            <div className="lg:col-span-2">
-              <Section delay={80}>
-                <PackageInfo
-                  carrier={carrier}
-                  service={service}
-                  trackingNumber={activeTracking.number}
-                  carrierMeta={meta}
-                  arrival={arrival}
-                />
-              </Section>
-            </div>
-
-            {/* Probability Dashboard — wide centre */}
-            <div className="lg:col-span-3">
-              <Section delay={100}>
-                <ProbabilityDashboard
-                  carrier={carrier}
-                  service={service}
-                  carrierMeta={meta}
-                />
-              </Section>
-            </div>
-          </div>
+          {/* Package Info */}
+          <Section delay={80}>
+            <PackageInfo
+              carrier={carrier}
+              service={service}
+              trackingNumber={activeTracking.number}
+              carrierMeta={meta}
+            />
+          </Section>
 
           {/* Status Timeline — full width */}
           <Section delay={140}>
