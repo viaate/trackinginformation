@@ -261,10 +261,12 @@ export default function ShippingMap({ carrier, carrierMeta }) {
           scrollWheelZoom={false}
           attributionControl={false}
         >
-          {/* Dark-mode OSM tiles (Stadia free tier, no key needed) */}
+          {/* CARTO Dark Matter — free, no API key, OpenStreetMap data */}
           <TileLayer
-            url="https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://stadiamaps.com/">Stadia Maps</a> &copy; <a href="https://openmaptiles.org/">OpenMapTiles</a> &copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>'
+            subdomains="abcd"
+            maxZoom={19}
           />
 
           {/* Full dashed route */}

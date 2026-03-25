@@ -3,7 +3,6 @@ import TrackingInput from './components/TrackingInput';
 import ProbabilityDashboard from './components/ProbabilityDashboard';
 import StatusTimeline from './components/StatusTimeline';
 import DirectLinks from './components/DirectLinks';
-import { trackSingle } from './utils/externalcall';
 import { getStats } from './data/shippingStats';
 import { isInternational } from './utils/carrierDetector';
 
@@ -71,26 +70,20 @@ function Section({ children, delay = 0 }) {
 }
 
 // ---------------------------------------------------------------------------
-// 17Track Embed Widget
+// 17Track Embed Widget — direct iframe embed (no YQV5 script dependency)
 // ---------------------------------------------------------------------------
 function TrackingWidget({ trackingNumber, isVisible }) {
-  const containerRef = useRef(null);
-  const lastTrackedRef = useRef(null);
+  const [iframeKey, setIframeKey] = useState(0);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    if (!isVisible || !trackingNumber) return;
-    if (lastTrackedRef.current === trackingNumber) return;
-    lastTrackedRef.current = trackingNumber;
-
-    // Small delay to let the DOM mount
-    const timer = setTimeout(() => {
-      trackSingle('YQContainer', trackingNumber);
-    }, 300);
-
-    return () => clearTimeout(timer);
-  }, [trackingNumber, isVisible]);
+    setLoaded(false);
+    setIframeKey(k => k + 1);
+  }, [trackingNumber]);
 
   if (!isVisible) return null;
+
+  const embedUrl = `https://t.17track.net/en#nums=${encodeURIComponent(trackingNumber)}`;
 
   return (
     <div className="glass-card overflow-hidden">
@@ -105,22 +98,39 @@ function TrackingWidget({ trackingNumber, isVisible }) {
           </h3>
         </div>
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="text-xs text-slate-500 font-mono">Live feed</span>
+          {loaded && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
+          <span className="text-xs text-slate-500 font-mono">{loaded ? 'Live feed' : 'Loading…'}</span>
+          <a
+            href={embedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-blue-400 hover:text-blue-300 font-mono underline underline-offset-2"
+          >
+            Open full ↗
+          </a>
         </div>
       </div>
 
-      {/* Widget container — YQV5 injects its iframe here */}
-      <div
-        id="YQContainer"
-        ref={containerRef}
-        className="min-h-[400px] flex items-center justify-center"
-        style={{ background: 'transparent' }}
-      >
-        <div className="text-center text-slate-600 font-mono text-sm">
-          <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-3" />
-          Loading tracking data…
-        </div>
+      <div className="relative" style={{ height: 560 }}>
+        {!loaded && (
+          <div className="absolute inset-0 flex items-center justify-center bg-navy-900/80 z-10">
+            <div className="text-center text-slate-600 font-mono text-sm">
+              <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-400 rounded-full animate-spin mx-auto mb-3" />
+              Loading tracking data…
+            </div>
+          </div>
+        )}
+        <iframe
+          key={iframeKey}
+          src={embedUrl}
+          width="100%"
+          height="560"
+          frameBorder="0"
+          title="17Track live tracking"
+          onLoad={() => setLoaded(true)}
+          style={{ display: 'block', border: 'none', background: '#0a0e1a' }}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+        />
       </div>
     </div>
   );
