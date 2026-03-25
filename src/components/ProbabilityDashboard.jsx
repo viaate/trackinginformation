@@ -1,6 +1,13 @@
-import { useMemo } from 'react';
-import { getStats, computeArrivalDates } from '../data/shippingStats';
+import { useMemo, useState } from 'react';
+import { getStats, computeArrivalDates, CARRIER_SCHEDULE, CUSTOMS_BUFFER } from '../data/shippingStats';
 import { isInternational } from '../utils/carrierDetector';
+
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmtFull(date) {
+  return `${DAY_NAMES[date.getDay()]}, ${MONTH_NAMES[date.getMonth()]} ${date.getDate()}`;
+}
 
 // ---------------------------------------------------------------------------
 // Bell Curve SVG Generator
@@ -207,22 +214,24 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
   const today = useMemo(() => new Date(), []);
   const stats = useMemo(() => getStats(carrier, service), [carrier, service]);
   const international = useMemo(() => isInternational(carrier, service), [carrier, service]);
+  const [showCalc, setShowCalc] = useState(false);
 
   const arrival = useMemo(() => {
     if (!stats) return null;
-    return computeArrivalDates(stats, international, today);
-  }, [stats, international, today]);
+    return computeArrivalDates(stats, international, carrier, today);
+  }, [stats, international, carrier, today]);
 
   if (!stats || !arrival) return null;
 
   const color = carrierMeta?.color || '#3b82f6';
-  const isWeekend = arrival.buffers.weekend > 0;
+  const schedule = CARRIER_SCHEDULE[carrier];
+  const todayName = DAY_NAMES[today.getDay()];
 
   const probabilities = [
     {
       pct: 10,
       label: 'Best case',
-      sublabel: 'Fastest 10% of shipments',
+      sublabel: 'Fastest 10% of shipments arrive this quickly',
       date: arrival.best,
       days: arrival.days.best,
       color: '#10b981',
@@ -232,7 +241,7 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
     {
       pct: 50,
       label: 'Most likely',
-      sublabel: 'Median arrival',
+      sublabel: 'Median — half of shipments arrive before this',
       date: arrival.avg,
       days: arrival.days.avg,
       color: color,
@@ -242,8 +251,8 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
     },
     {
       pct: 75,
-      label: '75% on time',
-      sublabel: '3 in 4 shipments arrive by this date',
+      label: '75% arrive by',
+      sublabel: '3 in 4 shipments delivered by this date',
       date: arrival.p75,
       days: arrival.days.p75,
       color: '#f59e0b',
@@ -252,8 +261,8 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
     },
     {
       pct: 90,
-      label: '90% on time',
-      sublabel: '9 in 10 shipments arrive by this date',
+      label: '90% arrive by',
+      sublabel: '9 in 10 shipments delivered by this date',
       date: arrival.p90,
       days: arrival.days.p90,
       color: '#f97316',
@@ -263,7 +272,7 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
     {
       pct: 5,
       label: 'Delay risk',
-      sublabel: '5% chance of delay beyond this date',
+      sublabel: '5% of shipments exceed this date (lost/held)',
       date: arrival.worst,
       days: arrival.days.worst,
       color: '#ef4444',
@@ -271,6 +280,48 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
       border: 'rgba(239,68,68,0.3)',
     },
   ];
+
+  // Build calculation steps for the explanation panel
+  const calcSteps = [
+    {
+      icon: '📅',
+      label: 'Starting point',
+      value: `${todayName}, ${fmtFull(today)}`,
+      detail: 'Date you entered the tracking number',
+    },
+    {
+      icon: '📦',
+      label: 'Service',
+      value: stats.label,
+      detail: `Historical avg: ${stats.avg} delivery days  ·  Best: ${stats.best}d  ·  Worst: ${stats.worst}d`,
+    },
+    {
+      icon: '🗓️',
+      label: 'Delivery schedule',
+      value: schedule ? schedule.label : 'Unknown',
+      detail: schedule ? schedule.note : '',
+    },
+    arrival.buffers.weekendGapNote && {
+      icon: '⚠️',
+      label: 'Weekend gap',
+      value: 'Extra delay applied',
+      detail: arrival.buffers.weekendGapNote,
+      warn: true,
+    },
+    arrival.buffers.isInternational && {
+      icon: '🌍',
+      label: 'Customs clearance',
+      value: `+${CUSTOMS_BUFFER.best}–${CUSTOMS_BUFFER.worst} days`,
+      detail: `International shipments average +${CUSTOMS_BUFFER.avg} extra days for customs. Best case +${CUSTOMS_BUFFER.best}d, worst case +${CUSTOMS_BUFFER.worst}d.`,
+      warn: true,
+    },
+    {
+      icon: '📊',
+      label: 'Data source',
+      value: 'Historical carrier performance',
+      detail: 'Based on aggregated delivery records. Percentiles derived from normal distribution fitted to carrier-reported ranges.',
+    },
+  ].filter(Boolean);
 
   return (
     <div className="glass-card p-6 animate-slide-up">
@@ -280,7 +331,7 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
           <p className="section-label mb-1">Probability Engine</p>
           <h3 className="text-lg font-bold text-white">Arrival Forecast</h3>
           <p className="text-xs text-slate-500 mt-1 font-mono">
-            {stats.label} · Based on historical data
+            {stats.label} · {schedule?.label || 'Calendar'} delivery
           </p>
         </div>
         <div className="text-right">
@@ -289,18 +340,24 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
         </div>
       </div>
 
-      {/* Active warning banners */}
+      {/* Active banners */}
       <div className="flex flex-col gap-2 mb-5">
-        {isWeekend && (
+        {arrival.buffers.weekendGapNote && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
             <span>📅</span>
-            <span>Weekend buffer applied: +{arrival.buffers.weekend} day(s) added to estimates</span>
+            <span>{arrival.buffers.weekendGapNote}</span>
           </div>
         )}
         {arrival.buffers.isInternational && (
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs">
             <span>🌍</span>
-            <span>International shipment: +{arrival.buffers.customs} days added for customs clearance</span>
+            <span>International: +{CUSTOMS_BUFFER.best}–{CUSTOMS_BUFFER.worst} days for customs (avg +{arrival.buffers.customs}d)</span>
+          </div>
+        )}
+        {schedule && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/5 border border-blue-500/15 text-blue-400/80 text-xs">
+            <span>🗓️</span>
+            <span>{schedule.note} — dates skip non-delivery days automatically</span>
           </div>
         )}
       </div>
@@ -308,7 +365,7 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
       {/* Bell Curve */}
       <div className="mb-5 rounded-xl bg-navy-900/50 border border-slate-800 p-3">
         <p className="text-xs text-slate-600 font-mono mb-2 text-center">
-          Probability Distribution — Transit Days
+          Probability Distribution — Delivery Days
         </p>
         <BellCurveSVG stats={stats} arrival={arrival} carrierColor={color} />
         <div className="flex justify-center gap-5 mt-1">
@@ -360,10 +417,64 @@ export default function ProbabilityDashboard({ carrier, service, carrierMeta }) 
         ))}
       </div>
 
-      {/* Footer disclaimer */}
+      {/* Why these dates — collapsible calculation breakdown */}
+      <div className="mt-5 rounded-xl border border-slate-800 overflow-hidden">
+        <button
+          onClick={() => setShowCalc(c => !c)}
+          className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-navy-700/40 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-300">Why these dates?</span>
+            <span className="text-xs text-slate-600 font-mono">Calculation breakdown</span>
+          </div>
+          <svg
+            className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${showCalc ? 'rotate-180' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {showCalc && (
+          <div className="px-4 pb-4 border-t border-slate-800">
+            <div className="mt-3 space-y-0">
+              {calcSteps.map((step, i) => (
+                <div key={i} className="flex gap-3 py-3 border-b border-slate-800/50 last:border-0">
+                  <div className="flex flex-col items-center flex-shrink-0">
+                    <span className="text-base">{step.icon}</span>
+                    {i < calcSteps.length - 1 && (
+                      <div className="w-px flex-1 bg-slate-800 mt-1" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-slate-500 font-mono uppercase tracking-wider">{step.label}</span>
+                      <span
+                        className={`text-sm font-semibold ${step.warn ? 'text-amber-400' : 'text-white'}`}
+                      >
+                        {step.value}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{step.detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Formula summary */}
+            <div className="mt-3 px-3 py-2.5 rounded-lg bg-navy-900/60 border border-slate-800 font-mono text-xs text-slate-500 leading-relaxed">
+              <span className="text-slate-400">Formula: </span>
+              today + base_transit_days (skipping {schedule?.label || 'non-delivery'} days)
+              {arrival.buffers.isInternational && <> + customs ({CUSTOMS_BUFFER.avg}d avg)</>}
+              {arrival.buffers.weekendGapNote && <> + weekend gap</>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
       <p className="mt-4 text-xs text-slate-600 leading-relaxed text-center">
-        Estimates derived from historical carrier performance data.
-        Actual delivery may vary due to weather, volume surges, or carrier delays.
+        Based on historical carrier data. Weather, peak season, and carrier delays may affect actual delivery.
       </p>
     </div>
   );

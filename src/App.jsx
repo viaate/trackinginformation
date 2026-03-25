@@ -3,7 +3,8 @@ import TrackingInput from './components/TrackingInput';
 import ProbabilityDashboard from './components/ProbabilityDashboard';
 import StatusTimeline from './components/StatusTimeline';
 import DirectLinks from './components/DirectLinks';
-import { getStats } from './data/shippingStats';
+import PackageInfo from './components/PackageInfo';
+import { getStats, computeArrivalDates } from './data/shippingStats';
 import { isInternational } from './utils/carrierDetector';
 
 // Lazy-load the map (leaflet is heavy)
@@ -206,6 +207,8 @@ export default function App() {
   const meta       = activeTracking?.detection?.meta    || detection?.meta;
   const stats      = getStats(carrier, service);
   const hasResults = !!activeTracking;
+  const intl       = isInternational(carrier, service);
+  const arrival    = stats ? computeArrivalDates(stats, intl, carrier) : null;
 
   return (
     <div className="min-h-screen bg-navy-900 bg-grid-pattern">
@@ -295,9 +298,22 @@ export default function App() {
             <CarrierBanner detection={activeTracking.detection} />
           </Section>
 
-          {/* Two-column: Probability + Timeline */}
+          {/* Three-column top row: PackageInfo + Probability + Timeline */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-            {/* Probability Dashboard — wider */}
+            {/* Package Info — leftmost narrow column */}
+            <div className="lg:col-span-2">
+              <Section delay={80}>
+                <PackageInfo
+                  carrier={carrier}
+                  service={service}
+                  trackingNumber={activeTracking.number}
+                  carrierMeta={meta}
+                  arrival={arrival}
+                />
+              </Section>
+            </div>
+
+            {/* Probability Dashboard — wide centre */}
             <div className="lg:col-span-3">
               <Section delay={100}>
                 <ProbabilityDashboard
@@ -307,18 +323,16 @@ export default function App() {
                 />
               </Section>
             </div>
-
-            {/* Status Timeline — narrower */}
-            <div className="lg:col-span-2">
-              <Section delay={150}>
-                <StatusTimeline
-                  carrier={carrier}
-                  stats={stats}
-                  carrierMeta={meta}
-                />
-              </Section>
-            </div>
           </div>
+
+          {/* Status Timeline — full width */}
+          <Section delay={140}>
+            <StatusTimeline
+              carrier={carrier}
+              stats={stats}
+              carrierMeta={meta}
+            />
+          </Section>
 
           {/* Interactive Map */}
           {carrier && (

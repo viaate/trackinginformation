@@ -388,61 +388,117 @@ export const carrierHubs = {
 };
 
 /**
- * Customs buffer: extra days to add for international shipments.
- * Best-case and worst-case adjustments.
+ * Carrier delivery schedule definitions.
+ * Defines which days each carrier actually attempts delivery.
  */
-export const CUSTOMS_BUFFER = {
-  best: 3,
-  avg: 7,
-  worst: 14,
+export const CARRIER_SCHEDULE = {
+  UPS:      { days: [1,2,3,4,5],   label: 'Mon–Fri',  note: 'UPS Ground does not deliver on weekends' },
+  FedEx:    { days: [1,2,3,4,5],   label: 'Mon–Fri',  note: 'FedEx Ground does not deliver on weekends' },
+  USPS:     { days: [1,2,3,4,5,6], label: 'Mon–Sat',  note: 'USPS delivers Monday through Saturday' },
+  DHL:      { days: [1,2,3,4,5,6], label: 'Mon–Sat',  note: 'DHL Express delivers Monday through Saturday' },
+  Amazon:   { days: [0,1,2,3,4,5,6], label: 'Every day', note: 'Amazon Logistics delivers 7 days a week' },
+  ChinaPost:{ days: [1,2,3,4,5,6], label: 'Calendar days', note: 'International transit uses calendar days' },
 };
 
 /**
- * Weekend buffer: if today is Friday (5) or Saturday (6), adds extra days
- * because most carriers don't move commercial freight on weekends.
+ * Customs buffer: extra days added for international shipments.
  */
-export function getWeekendBuffer(dayOfWeek) {
-  if (dayOfWeek === 5) return 2; // Friday → add full weekend
-  if (dayOfWeek === 6) return 1; // Saturday → add Sunday
-  return 0;
+export const CUSTOMS_BUFFER = { best: 3, avg: 7, worst: 14 };
+
+/**
+ * Advance a date by N *delivery days* for a given carrier, skipping days
+ * the carrier does not deliver (e.g. USPS skips Sunday, UPS skips weekends).
+ * International/postal carriers (ChinaPost) use raw calendar days.
+ */
+function addDeliveryDays(startDate, deliveryDays, carrier) {
+  const d = new Date(startDate);
+  if (deliveryDays <= 0) return d;
+
+  const schedule = CARRIER_SCHEDULE[carrier];
+  // If schedule covers all 7 days, or carrier is unknown, use calendar days
+  if (!schedule || schedule.days.length === 7) {
+    d.setDate(d.getDate() + Math.ceil(deliveryDays));
+    return d;
+  }
+
+  // International postal: calendar days (too variable for weekday math)
+  if (carrier === 'ChinaPost') {
+    d.setDate(d.getDate() + Math.ceil(deliveryDays));
+    return d;
+  }
+
+  // Walk forward day by day, counting only carrier delivery days
+  let remaining = Math.ceil(deliveryDays);
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (schedule.days.includes(d.getDay())) {
+      remaining--;
+    }
+  }
+  return d;
 }
 
 /**
- * Probability Engine — computes arrival date range given shipping stats.
- *
- * @param {object} stats  - From getStats()
- * @param {boolean} international - Whether to apply customs buffer
- * @param {Date} [fromDate] - Start date (defaults to today)
- * @returns {{ best: Date, avg: Date, p75: Date, p90: Date, worst: Date, buffers: object }}
+ * Returns a human-readable note about why a weekend gap was added.
  */
-export function computeArrivalDates(stats, international, fromDate = new Date()) {
-  const weekendBuffer = getWeekendBuffer(fromDate.getDay());
-  const customsBest = international ? CUSTOMS_BUFFER.best : 0;
-  const customsAvg = international ? CUSTOMS_BUFFER.avg : 0;
+export function getWeekendGapNote(fromDate, carrier) {
+  const dow = fromDate.getDay();
+  const schedule = CARRIER_SCHEDULE[carrier];
+  if (!schedule) return null;
+
+  if (dow === 5 && !schedule.days.includes(6)) {
+    return 'Shipped Friday — next UPS/FedEx pickup is Monday (+2 days)';
+  }
+  if (dow === 5 && schedule.days.includes(6) && !schedule.days.includes(0)) {
+    return 'Shipped Friday — carrier delivers Sat but not Sun, added 1 buffer day';
+  }
+  if (dow === 6 && !schedule.days.includes(0)) {
+    return 'Shipped Saturday — next delivery day is Monday (+1 day)';
+  }
+  if (dow === 0 && !schedule.days.includes(0)) {
+    return 'Shipped Sunday — first delivery day is Monday (+1 day)';
+  }
+  return null;
+}
+
+/**
+ * Probability Engine — computes realistic arrival dates using carrier-aware
+ * delivery day counting (no more USPS Sunday deliveries!).
+ *
+ * @param {object} stats       - From getStats()
+ * @param {boolean} international
+ * @param {string}  carrier    - Carrier key (UPS, FedEx, USPS, …)
+ * @param {Date}    [fromDate]
+ */
+export function computeArrivalDates(stats, international, carrier, fromDate = new Date()) {
+  const customsBest  = international ? CUSTOMS_BUFFER.best  : 0;
+  const customsAvg   = international ? CUSTOMS_BUFFER.avg   : 0;
   const customsWorst = international ? CUSTOMS_BUFFER.worst : 0;
 
-  const addDays = (date, days) => {
-    const d = new Date(date);
-    d.setDate(d.getDate() + Math.ceil(days));
-    return d;
-  };
+  // Add delivery days using carrier schedule (skips non-delivery days)
+  const addDays = (days) => addDeliveryDays(fromDate, days, carrier);
 
   const bestDays  = stats.best  + customsBest;
-  const avgDays   = stats.avg   + customsAvg  + weekendBuffer;
-  const p75Days   = stats.p75   + customsAvg  + weekendBuffer;
-  const p90Days   = stats.p90   + customsAvg  + weekendBuffer;
-  const worstDays = stats.worst + customsWorst + weekendBuffer;
+  const avgDays   = stats.avg   + customsAvg;
+  const p75Days   = stats.p75   + customsAvg;
+  const p90Days   = stats.p90   + customsAvg;
+  const worstDays = stats.worst + customsWorst;
+
+  const schedule = CARRIER_SCHEDULE[carrier] || CARRIER_SCHEDULE.USPS;
+  const weekendGapNote = getWeekendGapNote(fromDate, carrier);
 
   return {
-    best:  addDays(fromDate, bestDays),
-    avg:   addDays(fromDate, avgDays),
-    p75:   addDays(fromDate, p75Days),
-    p90:   addDays(fromDate, p90Days),
-    worst: addDays(fromDate, worstDays),
+    best:  addDays(bestDays),
+    avg:   addDays(avgDays),
+    p75:   addDays(p75Days),
+    p90:   addDays(p90Days),
+    worst: addDays(worstDays),
     buffers: {
-      weekend: weekendBuffer,
       customs: customsAvg,
       isInternational: international,
+      weekendGapNote,
+      scheduleLabel: schedule.label,
+      scheduleNote: schedule.note,
     },
     days: { best: bestDays, avg: avgDays, p75: p75Days, p90: p90Days, worst: worstDays },
   };
