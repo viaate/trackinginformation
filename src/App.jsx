@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import TrackingInput from './components/TrackingInput';
+import ProbabilityDashboard from './components/ProbabilityDashboard';
 import StatusTimeline from './components/StatusTimeline';
 import DirectLinks from './components/DirectLinks';
 import PackageInfo from './components/PackageInfo';
@@ -389,15 +390,28 @@ export default function App() {
             <CarrierBanner detection={activeTracking.detection} />
           </Section>
 
-          {/* Package Info */}
-          <Section delay={80}>
-            <PackageInfo
-              carrier={carrier}
-              service={service}
-              trackingNumber={activeTracking.number}
-              carrierMeta={meta}
-            />
-          </Section>
+          {/* Two-column: PackageInfo + ProbabilityDashboard */}
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="lg:col-span-2">
+              <Section delay={80}>
+                <PackageInfo
+                  carrier={carrier}
+                  service={service}
+                  trackingNumber={activeTracking.number}
+                  carrierMeta={meta}
+                />
+              </Section>
+            </div>
+            <div className="lg:col-span-3">
+              <Section delay={100}>
+                <ProbabilityDashboard
+                  carrier={carrier}
+                  service={service}
+                  carrierMeta={meta}
+                />
+              </Section>
+            </div>
+          </div>
 
           {/* Status Timeline — full width */}
           <Section delay={140}>

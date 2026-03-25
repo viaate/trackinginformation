@@ -1,4 +1,4 @@
-import { CARRIER_SCHEDULE } from '../data/shippingStats';
+import { CARRIER_SCHEDULE, getStats } from '../data/shippingStats';
 import { isInternational } from '../utils/carrierDetector';
 
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -23,9 +23,10 @@ function InfoRow({ label, value, mono = false, accent }) {
 }
 
 export default function PackageInfo({ carrier, service, trackingNumber, carrierMeta }) {
-  const today = new Date();
-  const intl  = isInternational(carrier, service);
+  const today    = new Date();
+  const intl     = isInternational(carrier, service);
   const schedule = CARRIER_SCHEDULE[carrier];
+  const stats    = getStats(carrier, service);
 
   // Human-readable detection explanation
   const detectionNote = carrier
@@ -76,6 +77,16 @@ export default function PackageInfo({ carrier, service, trackingNumber, carrierM
         />
         {schedule && (
           <InfoRow label="" value={<span className="text-slate-500 text-xs">{schedule.note}</span>} />
+        )}
+        {stats && (
+          <InfoRow
+            label="Typical Transit"
+            value={`${stats.best}–${stats.worst} ${schedule?.days.length === 7 ? 'calendar' : 'business'} days`}
+            accent={carrierMeta?.color}
+          />
+        )}
+        {stats && (
+          <InfoRow label="Median Transit" value={`${stats.avg} ${schedule?.days.length === 7 ? 'calendar' : 'business'} days`} />
         )}
         <InfoRow label="Tracked Since" value={fmt(today)} />
       </div>
